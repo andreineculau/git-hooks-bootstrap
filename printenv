@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -e
+
+# Demo hook that prints information about each commit and STASH_* environment variable
+
+echo "Positional parameters:"
+echo "${@}"
+echo
+
+echo "stdin (refs):"
+while read PREV_SHA NEW_SHA REF; do
+    echo -n "PREV_SHA=${PREV_SHA} NEW_SHA=${NEW_SHA} REF=${REF}"
+
+    # faster than git svn find-rev
+    SVN_REV=$(git rev-list --format=%B -1 ${NEW_SHA} | tail -n+2 | grep 'git-svn-id' | sed "s|.*\@\([0-9]\+\).*|\1|")
+
+    [[ -z ${SVN_REV} ]] || {
+        echo -n " SVN_REV=${SVN_REV}"
+    }
+
+    echo ""
+done
+echo
+
+echo "Environment:"
+printenv | grep -e "^STASH_"

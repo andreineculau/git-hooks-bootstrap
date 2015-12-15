@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -e
+
+source ${STASH_ADMIN_HOME}/git.fun
+
+function process_range() {
+    PREV_SHA=${1}
+    PREV_SHA_IS_0=$(git_is_delete_commit ${PREV_SHA} && echo true || echo false)
+    NEW_SHA=${2}
+    NEW_SHA_IS_0=$(git_is_delete_commit ${NEW_SHA} && echo true || echo false)
+    REF=${3}
+    PUSH_FORCE=$(git merge-base --is-ancestor ${PREV_SHA} ${NEW_SHA} 2>/dev/null && echo false || echo true)
+    if [[ ${NEW_SHA_IS_0} = false ]]; then
+        if [[ ${PREV_SHA_IS_0} = false && ${PUSH_FORCE} = false ]]; then
+            # new commits on an existing ref
+            SHAS="$(git rev-list --reverse ${PREV_SHA}..${NEW_SHA})"
+        else
+            # new ref or push --force
+            SHAS="$(git rev-list --reverse $(git for-each-ref --format="%(refname)" ${STASH_REPO_MAIN_REFS} | ${SED} "s/^/^/") ${NEW_SHA})"
+        fi
+    fi
+
+    # We're only interested in branches
+    git_is_branch_ref ${REF} || return 0
+
+    # We're only interested in new branches
+    [[ ${PREV_SHA_IS_0} = true ]] || return 0
+
+    # PLACEHOLDER: check/filter branch names based on internal conventions
+
+    # We're only interested in non-namespaced branches
+    # i.e. allow any namespaced branch e.g. feature/foo
+    REFS_GREP=$(echo "refs/heads/[^/]\+" | ${SED} "s/ /\\\|/g" | ${SED} "s/\*/.*/g")
+    echo ${REF} | ${GREP} -q "^\(${REFS_GREP}\)$" || return 0
+
+    # Only allow new maintenance-*
+    REFS_GREP=$(echo "refs/heads/maintenance-*" | ${SED} "s/ /\\\|/g" | ${SED} "s/\*/.*/g")
+    echo ${REF} | ${GREP} -q "^\(${REFS_GREP}\)$" || {
+        echo
+        echo "Only maintenance-* branches are allowed as non-namespaced branches."
+        return 1
+    }
+}
+
+process_range $@

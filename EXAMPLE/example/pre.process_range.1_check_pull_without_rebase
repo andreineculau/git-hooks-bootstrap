@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -e
+
+function process_range() {
+    PREV_SHA=${1}
+    NEW_SHA=${2}
+    REF=${3}
+
+    # We're only interested in the main branches
+    REFS_GREP=$(echo "${STASH_REPO_MAIN_REFS}" | ${SED} "s/ /\\\|/g" | ${SED} "s/\*/.*/g")
+    echo ${REF} | ${GREP} -q "^\(${REFS_GREP}\)$" || return 0
+
+    ${STASH_ADMIN_HOME}/process_range.check_pull_without_rebase $@
+}
+
+process_range $@

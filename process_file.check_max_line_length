@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -e
+
+source ${STASH_ADMIN_HOME}/git.fun
+
+function process_file() {
+    FILE=${1}
+    SHA=${2}
+    REF=${3}
+
+    MAX_LINE_LENGTH=$(git_check_attr_in_sha ${SHA} custom-max-line-length -z -- ${FILE} | ${SED} "s#${FILE}\x0custom-max-line-length\x0##" | ${TR} "," "\n")
+    [[ ${MAX_LINE_LENGTH} == "unspecified" || ${MAX_LINE_LENGTH} = "unset" ]] && return 0
+
+    MAX_LINE_LENGTH=$(( ${MAX_LINE_LENGTH} + 1 )) # to handle the + sign created by git diff
+    git diff --patch --unified=1000000 ${SHA}^..${SHA} -- ${FILE} | ${TAIL} -n+6  | ${SED} "/^\-.*/d" | ${GREP} --line-number --only-matching "^\\+.\{${MAX_LINE_LENGTH}\}" | ${SED} "s|^\([0-9]\+\):[+]|${SHA}:${FILE}:\1:|"
+}
+
+process_file $@

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+DIR=$(cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)
+source ${DIR}/env.sh
+source ${STASH_ADMIN_HOME}/misc.fun
+
+cd ${DIR}
+
+exe git fetch --prune
+exe git reset --hard origin/master
+exe git submodule foreach --recursive git reset --hard
+# exe git submodule update --init --recursive
+# --remote for now, in order to get the very latest on those branches
+exe git submodule update --init --recursive --remote

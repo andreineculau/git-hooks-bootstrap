@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+function process_range() {
+    PREV_SHA=${1}
+    NEW_SHA=${2}
+    REF=${3}
+
+    ${STASH_ADMIN_HOME}/update
+}
+
+process_range $@

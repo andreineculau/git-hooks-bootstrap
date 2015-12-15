@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -e
+
+# http://devblog.nestoria.com/post/98892582763/maintaining-a-consistent-linear-history-for-git
+
+source ${STASH_ADMIN_HOME}/common.fun
+source ${STASH_ADMIN_HOME}/git.fun
+
+need_env STASH_REPO_MAIN_REFS
+
+function process_range() {
+    PREV_SHA=${1}
+    PREV_SHA_IS_0=$(git_is_delete_commit ${PREV_SHA} && echo true || echo false)
+    NEW_SHA=${2}
+    NEW_SHA_IS_0=$(git_is_delete_commit ${NEW_SHA} && echo true || echo false)
+    REF=${3}
+    PUSH_FORCE=$(git merge-base --is-ancestor ${PREV_SHA} ${NEW_SHA} 2>/dev/null && echo false || echo true)
+    if [[ ${NEW_SHA_IS_0} = false ]]; then
+        if [[ ${PREV_SHA_IS_0} = false && ${PUSH_FORCE} = false ]]; then
+            # new commits on an existing ref
+            SHAS="$(git rev-list --reverse ${PREV_SHA}..${NEW_SHA})"
+        else
+            # new ref or push --force
+            SHAS="$(git rev-list --reverse $(git for-each-ref --format="%(refname)" ${STASH_REPO_MAIN_REFS} | ${SED} "s/^/^/") ${NEW_SHA})"
+        fi
+    fi
+
+    # We're only interested in branches
+    git_is_branch_ref ${REF} || return 0
+
+    # We're not interested in new branches
+    [[ ${PREV_SHA_IS_0} = true ]] && return 0
+
+    # We're only interested in new commits
+    git_is_delete_commit ${NEW_SHA} && return 0
+
+    # Allow git push --force
+    ${PUSH_FORCE} && return 0 || true
+
+    FIRST_SHA=$(echo ${SHAS} | ${TR} ' ' '\n' | ${HEAD} -1)
+    FIRST_SHA_PARENT_PARENT=$(git rev-list --parents -2 ${FIRST_SHA} | ${TAIL} -n+2 | ${CUT} --only-delimited -d' ' -f2)
+    [[ -n ${FIRST_SHA_PARENT_PARENT} ]] || return 0
+
+    git rev-list --first-parent ${FIRST_SHA_PARENT_PARENT}..${NEW_SHA} | ${GREP} -q "^${PREV_SHA}$" || {
+        BRANCH=${REF#refs/heads}
+        echo
+        echo "This push hides some commits previously displayed in \"git log --first-parent ${REF}\" on the server side."
+        echo "This probably happened because you ran \"git pull\" without the --rebase or --rebase=preserve flag."
+        echo "If this is the problem, run \"git rebase origin/${BRANCH}\" on your side, and push again."
+        return 1
+    }
+
+    for SHA in ${SHAS}; do
+        process_sha ${SHA} ${REF}
+    done
+
+    process_ref ${REF}
+}
+
+function process_sha() {
+    SHA=${1}
+    REF=${2}
+
+    # Insert here SHA processing
+}
+
+function process_ref() {
+    REF=${1}
+
+    # Insert here REF processing
+}
+
+process_range $@

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -e
+
+source ${STASH_ADMIN_HOME}/git.fun
+
+function process_file() {
+    FILE=${1}
+    SHA=${2}
+    REF=${3}
+
+    WHITESPACE=$(git_check_attr_in_sha ${SHA} whitespace -z -- ${FILE} | ${SED} "s#${FILE}\x0whitespace\x0##" | ${TR} "," "\n")
+    [[ ${WHITESPACE} == "unspecified" || ${WHITESPACE} == "unset" ]] && return 0
+
+    git diff --check ${SHA}^..${SHA} -- ${FILE} | ${SED} "s|^|${SHA}:|"
+
+    echo "${WHITESPACE}" | ${GREP} -q "^tab$" && {
+        git diff --patch --unified=1000000 ${SHA}^..${SHA} -- ${FILE} | ${TAIL} -n+6 | ${SED} "s/^\-.*//" | ${GREP} --line-number --only-matching "^\\+.*"$'\t' | ${SED} "s|^\([0-9]\+\):[+]|${SHA}:${FILE}:\1:|"
+    }
+}
+
+process_file $@

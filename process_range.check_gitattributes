@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -e
+
+source ${STASH_ADMIN_HOME}/common.fun
+source ${STASH_ADMIN_HOME}/git.fun
+
+need_env STASH_REPO_MAIN_REFS
+
+function process_range() {
+    PREV_SHA=${1}
+    PREV_SHA_IS_0=$(git_is_delete_commit ${PREV_SHA} && echo true || echo false)
+    NEW_SHA=${2}
+    NEW_SHA_IS_0=$(git_is_delete_commit ${NEW_SHA} && echo true || echo false)
+    REF=${3}
+    PUSH_FORCE=$(git merge-base --is-ancestor ${PREV_SHA} ${NEW_SHA} 2>/dev/null && echo false || echo true)
+    if [[ ${NEW_SHA_IS_0} = false ]]; then
+        if [[ ${PREV_SHA_IS_0} = false && ${PUSH_FORCE} = false ]]; then
+            # new commits on an existing ref
+            SHAS="$(git rev-list --reverse ${PREV_SHA}..${NEW_SHA})"
+        else
+            # new ref or push --force
+            SHAS="$(git rev-list --reverse $(git for-each-ref --format="%(refname)" ${STASH_REPO_MAIN_REFS} | ${SED} "s/^/^/") ${NEW_SHA})"
+        fi
+    fi
+
+    # Insert here early checks
+
+    for SHA in ${SHAS}; do
+        process_sha ${SHA} ${REF}
+    done
+
+    process_ref ${REF}
+}
+
+function process_sha() {
+    SHA=${1}
+    REF=${2}
+
+    # Allow commits before a certain date
+    COMMIT_DATE=$(git log --format=%ct -1 ${SHA})
+    [[ ${COMMIT_DATE} -lt ${STASH_ALLOW_ANYTHING_BEFORE_COMMIT_DATE} ]] && return 0 || true
+
+    WHITESPACE_ERRORS=$(mktemp)
+    MAX_LINE_LENGTH_ERRORS=$(mktemp)
+
+    for FILE in $(git diff --name-only --diff-filter=AM ${SHA}^..${SHA}); do
+        process_file ${FILE} ${SHA} ${REF}
+    done
+
+    HAS_ERRORS=false
+    [[ -s ${WHITESPACE_ERRORS} ]] && HAS_ERRORS=true && echo -e "\nFiles with whitespace errors" && cat ${WHITESPACE_ERRORS}
+    [[ -s ${MAX_LINE_LENGTH_ERRORS} ]] && HAS_ERRORS=true && echo -e "\nFiles with max line length errors" && cat ${MAX_LINE_LENGTH_ERRORS}
+
+    rm -f ${WHITESPACE_ERRORS}
+    rm -f ${MAX_LINE_LENGTH_ERRORS}
+
+    ${HAS_ERRORS} && echo -e "\nThe above errors can be fine-tuned by editing .gitattributes in the root of the repository.\nSee http://git-scm.com/docs/gitattributes" && return 1 || true
+}
+
+function process_file() {
+    FILE=${1}
+    SHA=${2}
+    REF=${3}
+
+    ${STASH_ADMIN_HOME}/process_file.check_whitespace ${FILE} ${SHA} ${REF} 2>&1 >> ${WHITESPACE_ERRORS} || true
+    ${STASH_ADMIN_HOME}/process_file.check_max_line_length ${FILE} ${SHA} ${REF} 2>&1 >> ${MAX_LINE_LENGTH_ERRORS} || true
+}
+
+function process_ref() {
+    REF=${1}
+
+    # Insert here REF processing
+}
+
+process_range $@
