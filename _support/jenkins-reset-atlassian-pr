@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+# This scripts is intended to be run as a Jenkins shell build step
+# and notify Atlassian Bitbucket Server of in-progress via a comment
+# and optionaly via a build status.
+# The script will also write out the ENV vars to a property file
+# so that they are loaded in a job's environment, and used by the
+# jenkins-notify-atlassian-pr script (running as a post-build step).
+
+ENV_FILENAME=".stash-env"
+
+function need() {
+    local VAR="${!1}"
+    [[ -n ${VAR} ]] || {
+        echo >&2 "Variable \$$1 is not set!"
+        exit 1
+    }
+}
+
+need "GIT_URL"
+need "GIT_COMMIT"
+
+STASH_PROJECT_KEY="${STASH_PROJECT_KEY:-${STASH_PROJECT}}"
+STASH_REPO_NAME="${STASH_REPO_NAME:-${STASH_REPO}}"
+
+# STASH VARS
+need "STASH_PROJECT_KEY"
+need "STASH_REPO_NAME"
+need "STASH_URL"
+need "STASH_USER"
+need "STASH_API_TOKEN"
+
+# JENKINS VARS
+need "JOB_NAME"
+need "BUILD_URL"
+need "BUILD_DISPLAY_NAME"
+
+STASH_STATE="INPROGRESS"
+if [[ -n ${STASH_PULL_REQUEST_ID} ]]; then
+    STASH_PULL_REQUEST_IDS=${STASH_PULL_REQUEST_ID}
+else
+    # guess the pull request(s) if we only have the GIT_COMMIT
+    STASH_PULL_REQUEST_IDS="$(git ls-remote ${GIT_URL} | grep "${GIT_COMMIT}[[:blank:]]refs/pull-requests/" | sed -r "s|.*refs/pull-requests/([0-9]+)/from|\1|g")"
+fi
+STASH_REPORT_BUILD_STATUS="${STASH_REPORT_BUILD_STATUS:-true}"
+
+echo "STASH_PROJECT_KEY=${STASH_PROJECT_KEY}" > ${ENV_FILENAME}
+echo "STASH_REPO_NAME=${STASH_REPO_NAME}" >> ${ENV_FILENAME}
+echo "STASH_PULL_REQUEST_ID=${STASH_PULL_REQUEST_ID}" >> ${ENV_FILENAME}
+echo "STASH_PULL_REQUEST_ACTION=${STASH_PULL_REQUEST_ACTION}" >> ${ENV_FILENAME}
+echo "STASH_PULL_REQUEST_URL=${STASH_PULL_REQUEST_URL}" >> ${ENV_FILENAME}
+echo "STASH_PULL_REQUEST_VERSION=${STASH_PULL_REQUEST_VERSION}" >> ${ENV_FILENAME}
+echo "STASH_PULL_REQUEST_IDS=${STASH_PULL_REQUEST_IDS}" >> ${ENV_FILENAME}
+echo "STASH_REPORT_BUILD_STATUS=${STASH_REPORT_BUILD_STATUS}" >> ${ENV_FILENAME}
+
+cat ${ENV_FILENAME}
+
+[[ ${STASH_REPORT_BUILD_STATUS} == "true" ]] && curl -sS -k \
+     -H "X-Auth-User: ${STASH_USER}" \
+     -H "X-Auth-Token: ${STASH_API_TOKEN}" \
+     -H "Accept: application/json" \
+     -X POST \
+     -H "Content-Type: application/json" \
+     --data "{\"state\": \"${STASH_STATE}\", \"key\": \"${JOB_NAME}\", \"name\": \"${JOB_NAME} ${BUILD_DISPLAY_NAME}\", \"url\": \"${BUILD_URL}\", \"description\": \"\"}" \
+     ${STASH_URL}/rest/build-status/1.0/commits/${GIT_COMMIT}
+
+COMMENT="STARTED\nBuild: ${BUILD_URL}\n${COMMENT_EXTRA}"
+
+for STASH_PULL_REQUEST_ID in ${STASH_PULL_REQUEST_IDS}; do
+    STASH_PULL_REQUEST_VERSION=$(curl -k \
+                                      -H "X-Auth-User: ${STASH_USER}" \
+                                      -H "X-Auth-Token: ${STASH_API_TOKEN}" \
+                                      -H "Accept: application/json" \
+                                      -sS \
+                                      -X GET \
+                                      ${STASH_URL}/rest/api/1.0/projects/${STASH_PROJECT_KEY}/repos/${STASH_REPO_NAME}/pull-requests/${STASH_PULL_REQUEST_ID} | jq .version)
+
+    echo "STASH_PULL_REQUEST_${STASH_PULL_REQUEST}_VERSION=${STASH_PULL_REQUEST_VERSION}" >> ${ENV_FILENAME}
+
+    curl -sS -k \
+         -H "X-Auth-User: ${STASH_USER}" \
+         -H "X-Auth-Token: ${STASH_API_TOKEN}" \
+         -H "Accept: application/json" \
+         -X DELETE \
+         ${STASH_URL}/rest/api/1.0/projects/${STASH_PROJECT_KEY}/repos/${STASH_REPO_NAME}/pull-requests/${STASH_PULL_REQUEST_ID}/approve
+
+    curl -sS -k \
+         -H "X-Auth-User: ${STASH_USER}" \
+         -H "X-Auth-Token: ${STASH_API_TOKEN}" \
+         -H "Accept: application/json" \
+         -X POST \
+         -H "Content-Type: application/json" \
+         --data "{\"text\": \"${COMMENT}\"}" \
+         ${STASH_URL}/rest/api/1.0/projects/${STASH_PROJECT_KEY}/repos/${STASH_REPO_NAME}/pull-requests/${STASH_PULL_REQUEST_ID}/comments
+done

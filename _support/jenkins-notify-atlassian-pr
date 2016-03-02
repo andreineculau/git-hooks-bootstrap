@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+
+# This scripts is intended to be run as a Jenkins shell post-build step
+# and notify Atlassian Bitbucket Server of the result via a comment
+# and optionaly via a build status.
+
+function need() {
+    local VAR="${!1}"
+    [[ -n ${VAR} ]] || {
+        echo >&2 "Variable \$$1 is not set!"
+        exit 1
+    }
+}
+
+need "GIT_COMMIT"
+
+STASH_PROJECT_KEY="${STASH_PROJECT_KEY:-${STASH_PROJECT}}"
+STASH_REPO_NAME="${STASH_REPO_NAME:-${STASH_REPO}}"
+
+# STASH VARS
+need "STASH_PROJECT_KEY"
+need "STASH_REPO_NAME"
+need "STASH_URL"
+need "STASH_USER"
+need "STASH_API_TOKEN"
+
+# JENKINS VARS
+need "JOB_NAME"
+need "BUILD_URL"
+need "BUILD_DISPLAY_NAME"
+
+RESULT="${RESULT:-UNKNOWN}"
+EMOJI="\u0028\u00B4\uFF65_\uFF65\u0060\u0029" # (´･_･`)
+STASH_STATE="FAILED"
+
+[[ ${TASK} = "approve" || ${RESULT} = "SUCCESS" ]] && {
+    RESULT="${RESULT:-SUCCESS}"
+    EMOJI="\u0028\u25E1\u203F\u25E1\u273F\u0029" # (◡‿◡✿)
+    STASH_STATE="SUCCESSFUL"
+}
+[[ ${TASK} = "decline" || ${RESULT} != "SUCCESS" ]] && {
+    RESULT="${RESULT:-FAILURE}"
+    EMOJI="\u1559\u0028\u21C0\u2038\u21BC\u2036\u0029\u1557" # ᕙ(⇀‸↼‶)ᕗ
+    STASH_STATE="FAILED"
+}
+
+[[ ${TASK} = "decline" ]] && {
+    # never decline tasks, because it can close the pull-request
+    unset TASK
+}
+
+[[ ${STASH_REPORT_BUILD_STATUS} == "true" ]] && curl -sS -k \
+     -H "X-Auth-User: ${STASH_USER}" \
+     -H "X-Auth-Token: ${STASH_API_TOKEN}" \
+     -H "Accept: application/json" \
+     -X POST \
+     -H "Content-Type: application/json" \
+     --data "{\"state\": \"${STASH_STATE}\", \"key\": \"${JOB_NAME}\", \"name\": \"${JOB_NAME} ${BUILD_DISPLAY_NAME}\", \"url\": \"${BUILD_URL}\", \"description\": \"\"}" \
+     ${STASH_URL}/rest/build-status/1.0/commits/${GIT_COMMIT}
+
+COMMENT="${RESULT} ${EMOJI}\nBuild: ${BUILD_URL}\n${COMMENT_EXTRA}"
+
+for STASH_PULL_REQUEST_ID in ${STASH_PULL_REQUEST_IDS}; do
+    STASH_PULL_REQUEST_URL="${STASH_URL}/projects/${STASH_PROJECT_KEY}/repos/${STASH_REPO_NAME}/pull-requests/${STASH_PULL_REQUEST_ID}"
+    STASH_PULL_REQUEST_VERSION_VAR="STASH_PULL_REQUEST_${STASH_PULL_REQUEST}_VERSION"
+    STASH_PULL_REQUEST_VERSION="${!STASH_PULL_REQUEST_VERSION_VAR}"
+    STASH_PULL_REQUEST_VERSION="${STASH_PULL_REQUEST_VERSION:-0}"
+
+    [[ -n ${TASK} ]] && curl -sS -k \
+         -H "X-Auth-User: ${STASH_USER}" \
+         -H "X-Auth-Token: ${STASH_API_TOKEN}" \
+         -H "Accept: application/json" \
+         -X POST \
+         -H "Content-Type: application/json" \
+         --data "{\"version\": \"${STASH_PULL_REQUEST_VERSION}\"}" \
+         ${STASH_URL}/rest/api/1.0/projects/${STASH_PROJECT_KEY}/repos/${STASH_REPO_NAME}/pull-requests/${STASH_PULL_REQUEST_ID}/${TASK}
+
+    [[ -n ${COMMENT} ]] && curl -sS -k \
+         -H "X-Auth-User: ${STASH_USER}" \
+         -H "X-Auth-Token: ${STASH_API_TOKEN}" \
+         -H "Accept: application/json" \
+         -X POST \
+         -H "Content-Type: application/json" \
+         --data "{\"text\": \"${COMMENT}\"}" \
+         ${STASH_URL}/rest/api/1.0/projects/${STASH_PROJECT_KEY}/repos/${STASH_REPO_NAME}/pull-requests/${STASH_PULL_REQUEST_ID}/comments
+done

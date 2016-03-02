@@ -60,3 +60,13 @@ As well as
 
 Defaults for these environment variables are provided in the root of `env.sh`,
 that can be overridden by `project/repository/env.sh`.
+
+
+## Integration
+
+[jenkins-reset-atlassian-pr](_support/jenkins-reset-atlassian-pr) and
+[jenkins-notify-atlassian-pr](_support/jenkins-notify-atlassian-pr)
+are two shell scripts meant to be run as part of a Jenkins job
+(build step, and post-build step respectively) and report to Stash.
+In a similar fashion, when adapted, they can be used from within
+a post- (async) hook, and report back to Atlassian BitBucket Server.
