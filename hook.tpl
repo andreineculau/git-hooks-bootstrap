@@ -8,20 +8,21 @@ LOGFILE_TMP=${LOGFILE}.$$
 echo "" > ${LOGFILE_TMP}
 
 function finish() {
+    # Successful exists
     [[ $? -ne 0 ]] || {
-        # More logging (temporary)
-        cat ${LOGFILE_TMP} >> ${LOGFILE}
         rm -f ${LOGFILE_TMP}
         rm -f HAS_ERRORS.$$
         return
     }
-    MAIL_ERROR_SUBJECT="${MAIL_ERROR_SUBJECT:-git hook error}"
-    MAIL_ERROR_TO="${MAIL_ERROR_TO:-git@example.com}"
-    cat ${LOGFILE_TMP} >> ${LOGFILE}
-    (
-        pwd
-        cat ${LOGFILE_TMP}
-    ) | mail -s ${MAIL_ERROR_SUBJECT} ${MAIL_ERROR_TO}
+    # Crashes
+    [[ $? -ne 1 ]] || {
+        cat ${LOGFILE_TMP} >> ${LOGFILE}
+        (
+            pwd
+            cat ${LOGFILE_TMP}
+        ) | mail -aFrom:${STASH_MAIL_ERROR_FROM} -s ${STASH_MAIL_ERROR_SUBJECT} ${STASH_MAIL_ERROR_TO}
+    }
+    # Cleanup
     rm -f ${LOGFILE_TMP}
     rm -f HAS_ERRORS.$$
 }
