@@ -62,6 +62,14 @@ Defaults for these environment variables are provided in the root of `env.sh`,
 that can be overridden by `project/repository/env.sh`.
 
 
+## Install stash-admin as a gitolite-admin counterpart
+
+Gitolite has a special gitolite-admin repository that hosts the gitolite configuration.
+
+Similarly, you can clone this repository and push it as `INFRA/stash-admin` to your Atlassian Stash/Bitbucket Server instance.
+Set up the post External Hook to point to `INFRA/stash-admin/post`. Next time you push changes, your changes will take effect immediately.
+
+
 ## Integration
 
 [jenkins-reset-atlassian-pr](_support/jenkins-reset-atlassian-pr) and
